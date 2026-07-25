@@ -1,49 +1,68 @@
 import cv2
 import sys
-from Seletor import selecionar_imagem
+import os
+from Seletor import selecionar_pasta
 from Placa import buscar_placa
 from Caractere import validar_caracteres
 
 def main():
-    # ==========================================
-    # 1. SELETOR DE ARQUIVOS 
-    # ==========================================
-    caminho_imagem = selecionar_imagem()
+    print("==========================================")
+    print(" PIPELINE DIRETA: BUSCA DE PLACAS")
+    print("==========================================")
     
-    if not caminho_imagem:
-        print("Nenhuma imagem selecionada. Encerrando...")
+    caminho_pasta, arquivos = selecionar_pasta()
+    
+    if not caminho_pasta or not arquivos:
+        print("Nenhuma pasta ou imagem selecionada. Encerrando...")
         sys.exit()
 
-    img_colorida = cv2.imread(caminho_imagem)
-    img_original = cv2.cvtColor(img_colorida, cv2.COLOR_BGR2GRAY)
+    pasta_destino = "./placas_recortadas"
+    os.makedirs(pasta_destino, exist_ok=True)
 
-    # ==========================================
-    # 2. BUSCA MACRO (Encontrar a Placa)
-    # ==========================================
-    img_debug_geometria, img_placa_recortada = buscar_placa(img_original, img_colorida)
+    print(f"Foram encontradas {len(arquivos)} imagens na pasta.")
+    contador = 1
 
-    # ==========================================
-    # 3. VALIDAR CARACTERES
-    # ==========================================
-    if img_placa_recortada is not None:
-        placa_bin, caracteres_encontrados = validar_caracteres(img_placa_recortada)
+    for caminho_imagem in arquivos:
+        print(f"\nProcessando: {caminho_imagem}")
+        img_colorida = cv2.imread(caminho_imagem)
         
-        if caracteres_encontrados >= 5:
-            print(f"\n[SUCESSO] Placa detectada: {caracteres_encontrados} caracteres validados estruturalmente.")
+        if img_colorida is None:
+            continue
+
+        # 1. Prepara a imagem cinza diretamente da foto original
+        img_cinza = cv2.cvtColor(img_colorida, cv2.COLOR_BGR2GRAY)
+        
+        # 2. Envia a imagem inteira para a busca da placa
+        img_debug_placa, img_placa_recortada = buscar_placa(img_cinza, img_colorida)
+
+        if img_placa_recortada is None:
+            print("[FALHA] Nenhuma placa encontrada na imagem inteira.")
+            cv2.imshow("Debug Placa", img_debug_placa)
+            
         else:
-            print(f"\n[ATENÇÃO] Placa detectada, mas caracteres borrados/ilegíveis (Apenas {caracteres_encontrados} encontrados).")
+            # 3. Validação dos Caracteres
+            placa_bin, caracteres = validar_caracteres(img_placa_recortada)
+            
+            if caracteres >= 5:
+                print(f"[SUCESSO] Placa validada estruturalmente ({caracteres} caracteres).")
+                nome_arquivo = f"placa_detectada_{contador}.jpg"
+                caminho_salvamento = os.path.join(pasta_destino, nome_arquivo)
+                
+                cv2.imwrite(caminho_salvamento, img_placa_recortada)
+                contador += 1
+            else:
+                print(f"[ATENÇÃO] Falso positivo ou placa ilegível (apenas {caracteres} formatações).")
 
-        cv2.imshow("1. Veiculo com Bounding Box", img_debug_geometria)
-        cv2.imshow("2. Matriz Recortada (A Placa)", img_placa_recortada)
-        cv2.imshow("3. Binarizacao da Placa (Busca Letras)", placa_bin)
+            # Exibe o fluxo
+            cv2.imshow("1. Busca na Foto", img_debug_placa)
+            cv2.imshow("2. Recorte", img_placa_recortada)
+            cv2.imshow("3. Letras", placa_bin)
 
-    else:
-        print("\n[FALHA] Nenhuma geometria semelhante a uma placa foi encontrada nesta foto.")
-        cv2.imshow("1. Tentativa de Busca", img_debug_geometria)
-
-    print("Pressione a tecla '0' na janela da imagem para fechar.")
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+        key = cv2.waitKey(0)
+        if key == 27: # Tecla ESC
+            break
+            
+        cv2.destroyAllWindows()
 
 if __name__ == "__main__":
     main()
