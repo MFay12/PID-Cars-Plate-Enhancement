@@ -2,14 +2,22 @@ import cv2
 import sys
 import os
 from Seletor import selecionar_pasta
-from Placa import buscar_placa
+from PlacaCarro import buscar_placa_carro
+from PlacaMoto import buscar_placa_moto
 from Caractere import validar_caracteres
 
 def main():
     print("==========================================")
-    print(" PIPELINE DIRETA: BUSCA DE PLACAS")
+    print(" PIPELINE DIRETA: TOP 5 VALIDATIVO")
     print("==========================================")
     
+    # Resolve os Falsos Positivos perguntando o escopo
+    print("\nO que voce deseja procurar nesta pasta?")
+    print("1 - Apenas Carros")
+    print("2 - Apenas Motos")
+    print("3 - Misturado (Tenta Carro, se falhar tenta Moto)")
+    opcao_busca = input("Digite o numero da opcao (1, 2 ou 3): ")
+
     caminho_pasta, arquivos = selecionar_pasta()
     
     if not caminho_pasta or not arquivos:
@@ -29,37 +37,71 @@ def main():
         if img_colorida is None:
             continue
 
-        # 1. Prepara a imagem cinza diretamente da foto original
         img_cinza = cv2.cvtColor(img_colorida, cv2.COLOR_BGR2GRAY)
-        
-        # 2. Envia a imagem inteira para a busca da placa
-        img_debug_placa, img_placa_recortada = buscar_placa(img_cinza, img_colorida)
+        sucesso = False
 
-        if img_placa_recortada is None:
-            print("[FALHA] Nenhuma placa encontrada na imagem inteira.")
-            cv2.imshow("Debug Placa", img_debug_placa)
+        # ==========================================
+        # BUSCA DE CARROS
+        # ==========================================
+        if opcao_busca in ['1', '3']:
+            img_debug, top_5_carros = buscar_placa_carro(img_cinza, img_colorida)
             
-        else:
-            # 3. Validação dos Caracteres
-            placa_bin, caracteres = validar_caracteres(img_placa_recortada)
-            
-            if caracteres >= 5:
-                print(f"[SUCESSO] Placa validada estruturalmente ({caracteres} caracteres).")
-                nome_arquivo = f"placa_detectada_{contador}.jpg"
-                caminho_salvamento = os.path.join(pasta_destino, nome_arquivo)
+            # Testa o Top 5 um por um
+            for indice, candidato in enumerate(top_5_carros):
+                score, x, y, largura, altura = candidato
+                img_recorte = img_cinza[y:y+altura, x:x+largura]
+                placa_bin, caracteres = validar_caracteres(img_recorte)
                 
-                cv2.imwrite(caminho_salvamento, img_placa_recortada)
-                contador += 1
-            else:
-                print(f"[ATENÇÃO] Falso positivo ou placa ilegível (apenas {caracteres} formatações).")
+                if caracteres >= 5:
+                    sucesso = True
+                    # Desenha a caixa verde da Vitoria
+                    cv2.rectangle(img_debug, (x, y), (x + largura, y + altura), (0, 255, 0), 3)
+                    cv2.putText(img_debug, "VENCEDOR", (x, y - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                    
+                    print(f"[SUCESSO] Placa de CARRO no candidato #{indice+1} ({caracteres} caracteres).")
+                    cv2.imshow("Debug Geral", img_debug)
+                    cv2.imshow("Recorte Vencedor", img_recorte)
+                    cv2.imshow("Caracteres", placa_bin)
+                    
+                    cv2.imwrite(os.path.join(pasta_destino, f"placa_carro_{contador}.jpg"), img_recorte)
+                    contador += 1
+                    break # Para de testar os outros candidatos desta foto
 
-            # Exibe o fluxo
-            cv2.imshow("1. Busca na Foto", img_debug_placa)
-            cv2.imshow("2. Recorte", img_placa_recortada)
-            cv2.imshow("3. Letras", placa_bin)
+            if not sucesso and opcao_busca == '1':
+                print("[FALHA] Nenhum dos 5 candidatos de carro passou no teste de letras.")
+                cv2.imshow("Debug Geral", img_debug)
+
+        # ==========================================
+        # BUSCA DE MOTOS
+        # ==========================================
+        if not sucesso and opcao_busca in ['2', '3']:
+            img_debug, top_5_motos = buscar_placa_moto(img_cinza, img_colorida)
+            
+            for indice, candidato in enumerate(top_5_motos):
+                score, x, y, largura, altura = candidato
+                img_recorte = img_cinza[y:y+altura, x:x+largura]
+                placa_bin, caracteres = validar_caracteres(img_recorte)
+                
+                if caracteres >= 5:
+                    sucesso = True
+                    cv2.rectangle(img_debug, (x, y), (x + largura, y + altura), (255, 0, 0), 3)
+                    cv2.putText(img_debug, "VENCEDOR", (x, y - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+                    
+                    print(f"[SUCESSO] Placa de MOTO no candidato #{indice+1} ({caracteres} caracteres).")
+                    cv2.imshow("Debug Geral", img_debug)
+                    cv2.imshow("Recorte Vencedor", img_recorte)
+                    cv2.imshow("Caracteres", placa_bin)
+                    
+                    cv2.imwrite(os.path.join(pasta_destino, f"placa_moto_{contador}.jpg"), img_recorte)
+                    contador += 1
+                    break 
+
+            if not sucesso:
+                print("[FALHA] Nenhum candidato passou no teste de letras.")
+                cv2.imshow("Debug Geral", img_debug)
 
         key = cv2.waitKey(0)
-        if key == 27: # Tecla ESC
+        if key == 27: 
             break
             
         cv2.destroyAllWindows()
